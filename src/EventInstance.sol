@@ -8,6 +8,7 @@ import "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Supply.sol";
 import "@chainlink/contracts/src/v0.8/vrf/interfaces/VRFCoordinatorV2Interface.sol";
 import "@chainlink/contracts/src/v0.8/vrf/VRFConsumerBaseV2.sol";
 import "@chainlink/contracts/src/v0.8/automation/interfaces/KeeperCompatibleInterface.sol";
+import "../src/Ticket1155.sol"; 
 
 contract EventInstance is AccessControl, ReentrancyGuard, KeeperCompatibleInterface {
     bytes32 public constant ORGANIZER_ROLE = keccak256("ORGANIZER_ROLE");
@@ -98,8 +99,19 @@ contract EventInstance is AccessControl, ReentrancyGuard, KeeperCompatibleInterf
         return tierNames;
     }
 
-    function checkUpkeep(bytes calldata) external view override returns (bool upkeepNeeded, bytes memory) {
-        upkeepNeeded = (!cancelled && !payoutClaimed && block.timestamp >= eventDate);
+    function checkUpkeep(
+        bytes calldata 
+    )
+        external
+        view
+        override
+        returns (
+            bool upkeepNeeded,
+            bytes memory performData
+        )
+    {
+        upkeepNeeded = !cancelled && !payoutClaimed && block.timestamp >= eventDate;
+        performData = ""; // Explicitly assign an empty bytes value
     }
 
     function performUpkeep(bytes calldata) external override {

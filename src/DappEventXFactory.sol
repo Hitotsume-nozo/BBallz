@@ -8,6 +8,9 @@ import "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Supply.sol";
 import "@chainlink/contracts/src/v0.8/vrf/interfaces/VRFCoordinatorV2Interface.sol";
 import "@chainlink/contracts/src/v0.8/vrf/VRFConsumerBaseV2.sol";
 import "@chainlink/contracts/src/v0.8/automation/interfaces/KeeperCompatibleInterface.sol";
+import "./Ticket1155.sol";
+import "./EventInstance.sol";
+
 
 contract DappEventXFactory is AccessControl {
     bytes32 public constant FACTORY_ADMIN = keccak256("FACTORY_ADMIN");
@@ -33,4 +36,5 @@ contract DappEventXFactory is AccessControl {
     function getAllEvents() external view returns (address[] memory) {
         return events;
     }
+    
 }
