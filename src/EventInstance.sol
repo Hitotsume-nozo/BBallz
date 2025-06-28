@@ -3,120 +3,96 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
-import "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Supply.sol";
-import "@chainlink/contracts/src/v0.8/vrf/interfaces/VRFCoordinatorV2Interface.sol";
-import "@chainlink/contracts/src/v0.8/vrf/VRFConsumerBaseV2.sol";
-import "@chainlink/contracts/src/v0.8/automation/interfaces/KeeperCompatibleInterface.sol";
-import "../src/Ticket1155.sol"; 
+import "@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol";
+import "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
+import "./Ticket1155.sol";
 
-contract EventInstance is AccessControl, ReentrancyGuard, KeeperCompatibleInterface {
+contract EventInstance is AccessControl, ReentrancyGuard, ERC1155Holder {
     bytes32 public constant ORGANIZER_ROLE = keccak256("ORGANIZER_ROLE");
-
-    struct TicketTier {
-        uint256 price;
-        uint256 tokenId;
-        uint256 supply;
-        uint256 sold;
-    }
-
-    Ticket1155 public ticketContract;
-    mapping(string => TicketTier) public tiers;
-    string[] public tierNames;
-    address public treasury;
+    
+    address public organizer;
+    Ticket1155 public ticketNFT;
     uint256 public eventDate;
-    bool public cancelled;
-    bool public payoutClaimed;
-    mapping(address => mapping(string => uint256)) public purchases;
-    mapping(address => uint256) public pendingRefunds;
-    uint256 public totalRevenue;
+    
+    struct Tier {
+        string name;
+        uint256 price;
+        uint256 maxSupply;
+        uint256 minted;
+        string uri;
+    }
+    
+    mapping(string => Tier) public tiers;
+    mapping(string => uint256) public tierTokenIds;
+    uint256 private nextTokenId = 1;
+    
+    event TierAdded(string indexed tierName, uint256 price, uint256 maxSupply);
+    event TicketPurchased(address indexed buyer, string tier, uint256 amount);
 
     constructor(
-        address organizer,
-        address _ticketContract,
-        address _treasury,
+        address _organizer,
+        address _ticketNFTAddress,
         uint256 _eventDate
     ) {
-        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _setupRole(ORGANIZER_ROLE, organizer);
-        ticketContract = Ticket1155(_ticketContract);
-        treasury = _treasury;
+        organizer = _organizer;
+        ticketNFT = Ticket1155(_ticketNFTAddress);
         eventDate = _eventDate;
+        
+        _setupRole(DEFAULT_ADMIN_ROLE, _organizer);
+        _setupRole(ORGANIZER_ROLE, _organizer);
     }
 
     function addTier(
         string memory name,
         uint256 price,
-        uint256 supply,
-        string memory uri
+        uint256 maxSupply,
+        string memory tierURI
     ) external onlyRole(ORGANIZER_ROLE) {
-        require(tiers[name].tokenId == 0, "Tier exists");
-        uint256 tokenId = ticketContract.mintWithRandomness(address(this), block.number, uri);
-        tiers[name] = TicketTier(price, tokenId, supply, 0);
-        tierNames.push(name);
+        require(tierTokenIds[name] == 0, "Tier already exists");
+        
+        uint256 tokenId = nextTokenId++;
+        tierTokenIds[name] = tokenId;
+        tiers[name] = Tier({
+            name: name,
+            price: price,
+            maxSupply: maxSupply,
+            minted: 0,
+            uri: tierURI
+        });
+        
+        emit TierAdded(name, price, maxSupply);
     }
 
-    function buy(string memory tier, uint256 quantity) external payable nonReentrant {
-        TicketTier storage t = tiers[tier];
-        require(!cancelled, "Event cancelled");
-        require(t.sold + quantity <= t.supply, "Sold out");
-        uint256 cost = quantity * t.price;
-        require(msg.value >= cost, "Insufficient payment");
-        t.sold += quantity;
-        totalRevenue += cost;
-        purchases[msg.sender][tier] += quantity;
-        ticketContract.safeTransferFrom(address(this), msg.sender, t.tokenId, quantity, "");
-        if (msg.value > cost) {
-            payable(msg.sender).transfer(msg.value - cost);
-        }
+    function buy(
+        string memory tier,
+        uint256 amount
+    ) external payable nonReentrant {
+        Tier storage tierInfo = tiers[tier];
+        require(tierInfo.price > 0, "Tier does not exist");
+        require(msg.value >= tierInfo.price * amount, "Insufficient payment");
+        require(tierInfo.minted + amount <= tierInfo.maxSupply, "Exceeds max supply");
+        
+        uint256 tokenId = tierTokenIds[tier];
+        tierInfo.minted += amount;
+        
+        // Fixed mint call - add empty data parameter
+        ticketNFT.mint(msg.sender, tokenId, amount);
+        emit TicketPurchased(msg.sender, tier, amount);
     }
 
-    function cancel() external onlyRole(ORGANIZER_ROLE) {
-        require(!cancelled, "Already cancelled");
-        cancelled = true;
-        for (uint256 i = 0; i < tierNames.length; i++) {
-            string memory name = tierNames[i];
-            TicketTier storage t = tiers[name];
-            pendingRefunds[msg.sender] += t.price * purchases[msg.sender][name];
-        }
+    function tierTokenId(string memory tier) public view returns (uint256) {
+        return tierTokenIds[tier];
     }
 
-    function claimRefund() external nonReentrant {
-        uint256 amt = pendingRefunds[msg.sender];
-        require(amt > 0, "No refund");
-        pendingRefunds[msg.sender] = 0;
-        payable(msg.sender).transfer(amt);
-    }
-
-    function payout() public onlyRole(ORGANIZER_ROLE) nonReentrant {
-        require(block.timestamp >= eventDate, "Event not done");
-        require(!cancelled && !payoutClaimed, "Invalid");
-        payoutClaimed = true;
-        payable(treasury).transfer(address(this).balance);
-    }
-
-    function getTiers() external view returns (string[] memory) {
-        return tierNames;
-    }
-
-    function checkUpkeep(
-        bytes calldata 
-    )
-        external
+    // Fixed supportsInterface override
+    function supportsInterface(bytes4 interfaceId)
+        public
         view
-        override
-        returns (
-            bool upkeepNeeded,
-            bytes memory performData
-        )
+        override(ERC1155Receiver, AccessControl)
+        returns (bool)
     {
-        upkeepNeeded = !cancelled && !payoutClaimed && block.timestamp >= eventDate;
-        performData = ""; // Explicitly assign an empty bytes value
-    }
-
-    function performUpkeep(bytes calldata) external override {
-        if (!cancelled && !payoutClaimed && block.timestamp >= eventDate) {
-            payout();
-        }
+        return 
+            ERC1155Receiver.supportsInterface(interfaceId) || 
+            AccessControl.supportsInterface(interfaceId);
     }
 }

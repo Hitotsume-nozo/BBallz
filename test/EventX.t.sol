@@ -10,8 +10,20 @@ contract EventXTest is Test {
     DappEventXFactory factory;
 
     function setUp() public {
-        ticket = new Ticket1155(address(0), 0, bytes32(0)); // mocked for local
+        // Use mock Chainlink args
+        address mockVRF = address(0x1234);
+        uint64 mockSubId = 1;
+        bytes32 mockKeyHash = bytes32("0xabc");
+
+        // Deploy contracts
+        ticket = new Ticket1155(mockVRF, mockSubId, mockKeyHash);
         factory = new DappEventXFactory(address(ticket));
+
+        // Setup roles properly
+        // Factory needs admin role on ticket to grant minter role to events
+        ticket.grantRole(ticket.DEFAULT_ADMIN_ROLE(), address(factory));
+        // Also grant minter role to factory directly
+        ticket.grantRole(ticket.MINTER_ROLE(), address(factory));
     }
 
     function testFactoryCreatesEvent() public {
