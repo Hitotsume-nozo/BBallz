@@ -14,4 +14,5 @@ interface IEventInstance {
     function cancel() external;
     function payout() external;
     function getTiers() external view returns (string[] memory);
+    
 }

@@ -10,9 +10,9 @@ contract Deploy is Script {
         vm.startBroadcast();
 
         Ticket1155 ticket = new Ticket1155(
-            0xYourVRFCoordinator, // e.g., Sepolia VRF
-            YourSubscriptionId,
-            0xYourKeyHash
+            0x9DdfaCa8183c41ad55329BdeeD9F6A8d53168B1B, // e.g., Sepolia VRF
+            4519,
+            0x787d74caea10b2b357790d5b5247c2f63d1d91572a9846f780606e4d953677ae
         );
 
         DappEventXFactory factory = new DappEventXFactory(address(ticket));
